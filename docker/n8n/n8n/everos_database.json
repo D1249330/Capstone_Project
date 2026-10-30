@@ -1,0 +1,138 @@
+{
+  "name": "EverOS_database",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "c055762a-8fe7-4141-a639-df2372f30060",
+      "typeVersion": 1.1,
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        288,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. 取得前一個節點傳來的 JSON 資料\nconst inputData = $input.first().json;\n\n// 2. 把 AI 的回答整理成一段文字\n//    回答在 output（物件：conclusion / reasons / note / suggestions），舊版是 report（字串）\nfunction answerToText(ans) {\n  if (ans == null) return \"\";\n  if (typeof ans === \"string\") return ans.trim();\n  if (typeof ans !== \"object\") return String(ans);\n\n  const lines = [];\n  if (ans.conclusion) lines.push(`結論：${ans.conclusion}`);\n\n  if (Array.isArray(ans.reasons) && ans.reasons.length) {\n    lines.push(\"判斷依據：\");\n    for (const r of ans.reasons) {\n      if (typeof r === \"string\") lines.push(`- ${r}`);\n      else if (r && r.sign) lines.push(`- ${r.sign}${r.risk ? `（${r.risk}）` : \"\"}`);\n    }\n  }\n\n  if (ans.note) lines.push(`補充：${ans.note}`);\n\n  if (Array.isArray(ans.suggestions) && ans.suggestions.length) {\n    lines.push(\"建議：\");\n    for (const s of ans.suggestions) lines.push(`- ${s}`);\n  }\n\n  // 都不是上面的欄位時，原樣轉成 JSON 文字，至少不會遺失\n  return lines.length ? lines.join(\"\\n\") : JSON.stringify(ans);\n}\n\nconst reportContent   = answerToText(inputData.output ?? inputData.report);\nconst questionContent = String(inputData.question || inputData.quetion || \"\").trim();\n\n// 3. 登入者資料；sender_id 只能用英文、數字和 _ . @ + -，其餘字元換成底線\nconst accountId   = String(inputData.account_id || \"york123\").replace(/[^a-zA-Z0-9_.@+-]/g, \"_\");\nconst accountName = String(inputData.account_name || \"\").trim() || null;\n\n// 4. 把「提問＋PhishGuard 的回答」寫成同一則訊息\n//    EverOS 一定會抽取使用者這一方的訊息，回答放在同一則裡才保證查得到\nconst now = Date.now();\nconst messages = [];\n\nif (questionContent !== \"\") {\n  const content = reportContent !== \"\"\n    ? `【PhishGuard 判斷紀錄】\\n使用者提問：${questionContent}\\nPhishGuard 的回答：\\n${reportContent}`\n    : questionContent;\n\n  messages.push({\n    sender_id:   accountId,\n    sender_name: accountName,\n    role:        \"user\",\n    timestamp:   now,\n    content,\n  });\n}\n\n// EverOS 規定 messages 至少要有一則，沒有內容就不送\nif (messages.length === 0) {\n  return [];\n}\n\n// 5. 組裝成 EverOS /api/v2/memory/add 的格式\nreturn [{\n  json: {\n    session_id: `phishguard_${accountId}`,   // 每個帳號各自一個 session\n    app_id:     \"default\",\n    project_id: \"default_proj\",\n    messages,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        352
+      ],
+      "id": "4555b118-948d-494d-b5c3-24321129b741",
+      "name": "Code in JavaScript7"
+    },
+    {
+      "parameters": {
+        "content": "## Add node\n**add_input_to_ram* ",
+        "height": 304,
+        "width": 496,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        448,
+        224
+      ],
+      "typeVersion": 1,
+      "id": "191d4f8c-d5a2-460c-88f0-f87ba53775e7",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/api/v2/memory/add",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        704,
+        352
+      ],
+      "id": "e1926d55-2f8d-401c-95d3-30b70ecedb25",
+      "name": "ADD Request"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/api/v2/memory/flush",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"session_id\": \"{{ $('Code in JavaScript7').item.json.session_id }}\",\n  \"app_id\": \"default\",\n  \"project_id\": \"default_proj\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        976,
+        352
+      ],
+      "id": "352fc2f4-c83c-41da-aa59-41cddb353731",
+      "name": "flush Request2"
+    },
+    {
+      "parameters": {
+        "content": "[\n  \n{\n  \n  \n\"question\": \n\"短網址可以點嗎?\",\n  \n  \n\"account_id\": \n\"S0000001\",\n  \n  \n\"account_name\": \n\"測試使用者\",\n  \n  \n\"report\": \n\"短網址可以點但需小心其中可能隱藏風險。一些不法分子會利用短網址引導用戶訪問釣魚網站因此在點擊前最好先檢查其真實性確保不會泄露個人資訊如果對網址有疑慮最好不要點擊或者直接在瀏覽器中輸入目標網站的完整地址以進行訪問\"\n  \n}\n]",
+        "height": 640
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -64,
+        48
+      ],
+      "typeVersion": 1,
+      "id": "2cb7c2f1-16d6-4680-ae28-416f2c0ff8e9",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript7": {
+      "main": [
+        [
+          {
+            "node": "ADD Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ADD Request": {
+      "main": [
+        [
+          {
+            "node": "flush Request2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "pinData": {}
+}
