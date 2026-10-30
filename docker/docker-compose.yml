@@ -1,0 +1,81 @@
+# n8n、Qdrant、Ollama 的本機啟動設定
+# 以 n8n 官方 self-hosted-ai-starter-kit 為基礎簡化，保留本專題用到的服務與掛載。
+# 本專題實際用到的設定：
+#   - n8n 透過 host.docker.internal 呼叫主機上的模型服務 :8001 與 EverOS :8000
+#   - 主機的 ./local_files 掛到容器的 /data/local_files（回報紀錄寫在這裡）
+#   - Ollama 使用 NVIDIA GPU（RTX 4060 Laptop 8GB）
+#
+# 啟動：docker compose up -d
+# 下載模型：docker exec ollama ollama pull qwen2.5:7b-instruct
+#           docker exec ollama ollama pull bge-m3
+
+volumes:
+  n8n_storage:
+  postgres_storage:
+  ollama_storage:
+  qdrant_storage:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - postgres_storage:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h localhost -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - 5678:5678
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_USER_MANAGEMENT_JWT_SECRET=${N8N_USER_MANAGEMENT_JWT_SECRET}
+      - OLLAMA_HOST=ollama:11434
+    extra_hosts:
+      # Linux 上要手動加，n8n 才能用 host.docker.internal 連到主機的 :8001、:8000
+      - host.docker.internal:host-gateway
+    volumes:
+      - n8n_storage:/home/node/.n8n
+      - ./local_files:/data/local_files
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  qdrant:
+    image: qdrant/qdrant
+    container_name: qdrant
+    restart: unless-stopped
+    ports:
+      - 6333:6333
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - 11434:11434
+    volumes:
+      - ollama_storage:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
